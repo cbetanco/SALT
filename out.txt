@@ -1,0 +1,16 @@
+xxx
+test1
+TFC commands check:
+FEReset passed
+Header passed
+ERROR::TFC BXReset fails
+ERROR::TFC NZS fails
+ERROR::TFC BxVeto fails
+Synch passed
+ERROR::TFC Snapshot fails
+ERROR::TFC Normal fails
+FAIL
+FAILED
+test1
+Total time = 0.051479 seconds
+END

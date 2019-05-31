@@ -1,0 +1,1135 @@
+#include "Ana_tests.h"
+#include "registers_config.h"
+#include <fstream>
+#include <cmath>
+#include <cstring>
+#include <iomanip>
+//#include "LstSquQuadRegr.h"
+//#include <gsl/gsl_sf_bessel.h>
+
+
+// CONSTRUCTOR
+Ana_tests::Ana_tests(Fpga *fpga, Salt *salt, FastComm *fastComm) {
+  fpga_=fpga;
+  salt_=salt;
+  fastComm_=fastComm;
+}
+
+void Ana_tests::Get_run(string option, int runs, string outText) {
+  
+
+//uint8_t reg;
+
+//salt_->read_salt(0x02, &reg);
+//cout << "0x02 is " << hex << (unsigned) reg << endl;
+
+//salt_->read_salt(0x03, &reg);
+//cout << "0x03 is " << hex << (unsigned) reg << endl;
+
+
+  // Define command length (will be 2 in this case)
+  uint8_t length = 255;  // Define command list (BXID and Sync)
+  uint8_t command[256]={0};
+  // Read out data packet
+  uint16_t length_read = 150; // number of clock cycles to read
+
+	//output file
+	//ofstream outfile;
+	//outfile.open ((option+"_"+outText+".txt").c_str());
+//  float avg_noise = 0;
+  int period = length;
+  bool singleShot = true;
+  //string data_string;
+	uint32_t data[5120];
+//  uint16_t data_decoded[10240]; //x2 as big as the previous
+
+  float avg_ADC[128] = {0};
+  //float std_dev[128] = {0};
+  int ADC[128] = {0};
+  int ADC_runs[128][runs] = {0};
+  int bxid = 0;
+  int parity = 0;
+  int mem_space = 0;
+  int flag = 0;
+  //bool skip = false;
+  
+  int length1= 0;
+  unsigned twelveBits[10240] = {0};
+  length_read = 255;
+  float avg_chip[runs] = {0};
+  float length_avg = 0;
+  period = length;
+  
+  // Define a number of headers for init.
+  for(int i=0; i<256; i++) command[i]=0x04;
+  if(option == "Normal")          command[79] = 0x00;
+  else if(option == "BXReset")    command[79] = 0x01;
+  else if(option == "FEReset")    command[79] = 0x02;
+  else if(option == "Header")     command[79] = 0x04;
+  else if(option == "NZS")        command[79] = 0x08;
+  else if(option == "BxVeto")     command[79] = 0x10;
+  else if(option == "Snapshot")   command[79] = 0x20;
+  else if(option == "Synch")      command[79] = 0x40;
+  else if(option == "Calib")      command[79] = 0x80;
+  else if(option == "Calib_NZS") 
+  {command[79] = 0x88;}
+	 // for(int l=80;l<85;l++) command[l]= 0x04;
+	  //command[80] = 0x08;}
+    else {
+    cout << "ERROR: Output packet not properly defined." << endl;  
+    return;  
+  } 
+    //command[80]=0x04;
+
+  // Take a number of runs
+	for(int i = 0; i < runs; i++) 
+	{
+		fastComm_->Take_a_run(length_read, data, length, 0, command, period, singleShot, true );		
+//for(int m =0; m <256; m++) cout << hex << (unsigned) command[m] << endl;
+		//read 12 bits at a time
+		for(int j=0; j<length_read; j++) 
+		{
+
+
+			twelveBits[2*j] = fastComm_->read_twelveBits(data[j], 0);
+			twelveBits[2*j+1] = fastComm_->read_twelveBits(data[j],1);
+//cout << hex << (unsigned) twelveBits[2*j] << endl;
+//cout << hex << (unsigned) twelveBits[2*j+1] << endl;
+
+		}
+		for(int j=0; j< 2*length_read; j++) {
+			fastComm_->read_Header(twelveBits[j], bxid, parity, flag, length1); //fastComm_->read_Header(twelveBits, bxid, parity, flag, length1);
+			// check flag bit to see if normal data packet
+			
+						if((flag == 0) && (option != "Calib_NZS")) 
+			{
+				length_avg+=length1/((float) runs);
+				if(length1 == 0 ) continue;
+				fastComm_->read_Normal_packet(length_read, twelveBits, j, ADC);//fastComm_->read_Normal_packet(data_string, j, ADC);
+			//skip = true;	
+					break;
+			}
+	
+			if(length1 == 0x30 || length1 == 0x13 || length1 == 0x14 || length1 == 0x15) continue;
+			if(length1 == 6) 
+			{
+				//cout << "header  = " << hex << twelveBits[j] << endl; 
+				length_avg+=length1/((float) runs);
+				fastComm_->read_NZS_packet(length_read, twelveBits, j, ADC, bxid, parity, m_mcm_v, m_mcm_ch, mem_space); //fastComm_->read_NZS_packet(data_string, j, ADC, bxid, parity, m_mcm_v, m_mcm_ch, mem_space);
+				//Needs to be rewritten
+				break;
+			}
+//cout << "data  = " << hex << (unsigned) twelveBits[j] << endl; 
+
+
+		}
+		//cout << "i: " << i << "| ";
+		for(int j=0; j<128; j++) 
+		{
+		//	cout << ADC[127-j] << " ";
+			ADC_runs[j][i] = ADC[j];
+			avg_ADC[127-j]+=ADC[j]/((float)runs);
+			avg_chip[i]+=ADC[127-j]/(128.);
+			//cout << "ch" << dec << j << " = " << ADC[j] << endl;
+
+			ADC[j]=0;
+		}
+      		//cout << endl;		
+	}
+	m_noise = 0;
+	for(int i = 0; i < 128; i++) {
+		m_avg_adc[i] = avg_ADC[i];
+		m_std_dev[i] = calculateSD(ADC_runs[i], runs);
+		m_noise+=avg_ADC[i]/(128.); 
+		histogram(-32,64,ADC_runs[i],runs, i);
+	}
+
+	m_noise_rms = calculateSD(avg_chip, runs);
+	//output_file(runs, avg_ADC, avg_chip, avg_noise, length_avg, outText, option);
+	//cout << "test4" << endl;
+}
+
+// creates output file with run(s) results
+void Ana_tests::output_file(int runs, float avg_ADC[], float avg_chip[], float avg_noise, float length_avg, string outText, string option) {
+
+  //ofstream outfile;
+  //outfile.open ((option+"_"+outText+".txt").c_str());
+  //outfile << "length_avg = " << dec << length_avg << endl;
+  
+  for(int j = 0; j<runs; j++) avg_noise+=avg_chip[j]/((float) runs);
+      
+  //outfile << "runs = " << dec << runs << ", Average = " << avg_noise << ", std_dev = " << calculateSD(avg_chip, runs)<<endl;
+  
+  
+  
+  //for(int j=0; j<128; j++) {
+  //    outfile << dec << avg_ADC[j] << endl;
+  //}
+  
+  //outfile.close();
+    
+  return;  
+  
+}
+
+// baseline corrections through trim dac
+bool Ana_tests::Baseline_corr() { 
+  
+  // Set SALT to DSP output
+  salt_->write_salt(registers::ser_source_cfg, (uint8_t) 0x20);
+  salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x20);
+
+  // output files to save data
+  //ofstream outfile, trimdac_scan;
+  //outfile.open("Baseline_value.txt");
+  //trimdac_scan.open("Trim_DAC_scan.txt");
+  
+  // variables
+  float adc_base[128][256] = {0};
+  int baseline[128] = {0};
+  float avg_baseline = 0;
+  
+  // set commom baseline to all channels
+  salt_->write_salt(registers::ana_g_cfg, (uint8_t) 0X92);
+//return true;  
+  //get a number of runs for each baseline value
+  for(int i = 0; i < 256 ; i++) {
+    
+    salt_->write_salt(registers::baseline_g_cfg,(uint8_t) i);    // baseline value written to salt
+    Get_run("NZS",10,"no_output");
+    
+    for(int j = 0; j < 128; j++) {
+	    adc_base[j][i] = m_avg_adc[j];
+    //cout << "m_avg_adc = " << m_avg_adc << endl;
+
+    }
+  }		
+  // loop over all baseline values and channels and find best value (lowest abs(ADC))
+  for(int j = 0; j < 128; j++) {
+    for(int i=0; i<256; i++) {
+      //trimdac_scan << adc_base[j][i] << "\t";
+      if(abs(adc_base[j][baseline[j]]) > abs(adc_base[j][i])) baseline[j]=i;
+    } 
+    //trimdac_scan << endl; // save scan data to output file
+    avg_baseline += baseline[j]/128.;    // calculate avg best value
+
+ m_baseline[j] = baseline[j];
+    salt_->write_salt((registers::baseline0_cfg) + j,(uint8_t) baseline[j]);    // write best value to salt register
+  }
+
+  // write best trim dac setting to file
+  //outfile << "AVG = " << avg_baseline << endl;
+  //outfile << "STD_DEV = " << calculateSD(baseline,128) << endl;
+  for(int i = 0; i < 128; i++)
+   // outfile << dec << baseline[i] << endl;
+  //outfile.close();
+  //trimdac_scan.close();
+  // revert to individual baseline value for each channel
+  salt_->write_salt(registers::ana_g_cfg, (uint8_t) 0X04);
+  //cout << "baseline 1 "<< endl;
+  if(avg_baseline == 0) {
+
+	  cout << "ERROR::Average baseline value = 0" << endl;
+	  m_health = "RED";
+	  return false;
+  }
+
+ // check linearity (5-points)
+  float p[5], b[5];
+  
+  for(int j = 0; j < 128; j++) {
+    for(int i = 0; i < 5; i++) {
+      b[i] = baseline[j]-2+i;
+      p[i] = adc_base[j][baseline[j]-2+i];
+
+    }
+  if(!Check_linear(b,p,5,0.1)){
+	  cout << "ERROR::Ch " << dec << j << " has non-linear trim DAC behavior around optimal value" << endl;
+  	  m_baseline_fail[j] = true;
+	  m_ch_pass[j] = false;
+	  return false;
+  }
+m_baseline_slope[j] = m_b;  
+  }
+
+	baseline_outFile();
+return true;
+}
+
+
+// check noise functionality of chip. Specify run number and data output stream type, i.e. masked ch ("MASK"), sync ch ("SYNC"), after ped sub ("PEDS"), after mcm("MCMS"), and either Normal or NZS data packet
+bool Ana_tests::Get_noise(int runs, string data_type, string option) {
+  
+  string outText;
+  uint8_t buffer=0x00;
+
+  // set mcms thresholds to smallest and largets value
+  salt_->write_salt(registers::mcm_th_cfg, (uint8_t) 0x1F);
+  salt_->write_salt(registers::mcm_th2_cfg, (uint8_t) 0x20);
+
+  // DSP output
+  salt_->write_salt(registers::ser_source_cfg,(uint8_t) 0x20);
+  
+  // check which data stream is selected
+  if(data_type == "MASK")
+    buffer = 0x00;
+  else if(data_type == "SYNC")
+    buffer = 0x20;
+  else if(data_type == "PEDS")
+    buffer = 0x40;
+  else if(data_type == "MCMS")
+    buffer = 0x60;
+  else {
+    cout << "ERROR:: Data stream not properly defined" << endl;
+    return false;
+  }
+  
+  salt_->write_salt(registers::n_zs_cfg, buffer);
+  
+  // read back n_zs_cfg to make proper outfile name
+  salt_->read_salt(registers::n_zs_cfg, &buffer);
+  
+  if((buffer & 0b01100000) == 0) outText = "noise_masked_ADC";
+  else if((buffer & 0x60) == 0b00100000) outText = "noise_sync_ADC";
+  else if((buffer & 0x60) == 0b01000000) outText = "noise_after_ped";
+  else if((buffer & 0x60) == 0b01100000) outText = "noise_after_mcm";
+  else {
+    
+    cout <<"ERROR::n_zs_cfg not properly defined" << endl;
+    return false;
+    
+  }
+  
+  // Do Normal packet
+  Get_run(option,runs,outText);
+
+  cout << "NOISE = " << m_noise << " +- " << m_noise_rms << endl;
+  for(int i = 0; i < 128; i++) {
+
+if((abs(m_avg_adc[i])-5*m_std_dev[i]) > m_noise) {
+
+	cout <<"ERROR::ch" << i << " has high noise" << endl;
+	m_ch_pass[i] = false;
+	m_noise_fail[i] = true;
+}
+
+  }
+  salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0);
+ 
+ noise_outFile(); 
+  return true;
+  
+}
+
+void Ana_tests::noise_outFile() {
+
+	ofstream outfile;
+	outfile.open("noise.txt");
+
+  // adv avg value
+  for(int i = 0; i < 128; i++) {
+    
+    outfile  << showpos<< fixed << setprecision(3) <<  m_avg_adc[i] << " ";
+    
+  }
+  outfile << endl;
+
+  // std dev
+  for(int i = 0; i < 128; i++) {
+    
+    outfile  << showpos << fixed << setprecision(3) << m_std_dev[i] << " ";
+    
+  }
+  outfile << endl;
+ int min = -32, bins = 64;
+
+  // histogram min and number of bins
+  outfile << noshowpos << dec << min << endl;
+  outfile << bins << endl;
+
+  //int min = -32, bins = 64;
+
+  // output histogram results for each channel
+  for(int i = 0; i < 128; i++) {
+
+    for(int j=min+32; j< min+32+bins; j++) {  
+           outfile << setfill('0') << setw(3) << adc_hist[i][j] << " ";
+
+    }
+       outfile << endl;
+  }
+  
+}
+
+
+void Ana_tests::adc_output(int min, int bins) {
+
+	//ofstream outfile;
+	//outfile.open("data.txt");
+
+  // adv avg value
+  for(int i = 0; i < 128; i++) {
+    
+    cout  << showpos<< fixed << setprecision(3) <<  m_avg_adc[i] << " ";
+    
+  }
+  cout << endl;
+
+  // std dev
+  for(int i = 0; i < 128; i++) {
+    
+    cout  << showpos << fixed << setprecision(3) << m_std_dev[i] << " ";
+    
+  }
+  cout << endl;
+
+  // histogram min and number of bins
+  cout << noshowpos << dec << min << endl;
+  cout << bins << endl;
+
+  
+  // output histogram results for each channel
+  for(int i = 0; i < 128; i++) {
+	  
+
+    for(int j=min+32; j< min+32+bins; j++) {  
+      cout << setfill('0') << setw(3) << adc_hist[i][j] << " ";
+      //outfile << setfill('0') << setw(3) << adc_hist[i][j] << " ";
+
+    }
+    cout << endl;
+    //outfile << endl;
+  }
+  
+}
+
+// make histogram
+void Ana_tests::histogram(int start, int bins, int data[], int size, int ch) {
+
+  start=start+32;
+  int counter = 0;
+  
+   if(start+bins > 64) {
+     cout << "ERROR::Histogram defined to be out of range" << endl;
+     return;
+   }
+   
+   for (int i = start; i < (start + bins); i++) {
+
+     counter = 0;
+     
+     for(int j=0; j< size; j++) {
+       
+       if((data[j]>=(i-32)) && (data[j] <(i+1-32))) counter++;
+       
+     }
+     
+     adc_hist[127-ch][i]=counter;
+     
+   }
+   
+   
+   
+}
+
+// checks mcmch and mcm_v
+bool Ana_tests::Check_MCMS(float ADC[128], int mcm1,  int mcm2, int mcm_ch, int mcm_v) {
+
+  int mcm_ch_calc=0;
+  float mcm_v_calc=0;
+  bool pass = true;
+
+	float thresh1 = (float) mcm1;
+	float thresh2 = (float) mcm2;
+
+
+  // check that expected and calculated mcm_ch are equal
+  for(int i=0; i < 128; i++) {
+	  if((ADC[i] >= thresh2) && (ADC[i] < thresh1)) 
+	  {
+		 mcm_ch_calc++;
+
+	  	 // cout << "mcm_ch_calc = " << mcm_ch_calc << endl;
+	  }
+//cout << "mcm1 = " << mcm1 << ", mcm2 = " << mcm2 << ", ADC[" << i << "] = " << ADC[i] << endl;
+
+	}
+
+  if(mcm_ch_calc != mcm_ch) {
+    cout << "ERROR::Calculated and expected MCM channel not equal" << endl;
+    cout << "mcm_ch_calc = " << dec << mcm_ch_calc << endl;
+    cout << "mcm_ch = " << dec << mcm_ch << endl;
+    pass = false;
+    //break;
+  }
+  // check that expected and calculated mcm_value are equal
+  for(int i=0; i < 128; i++)  
+    if((ADC[i] >= (float) (mcm2)) && (ADC[i] < (float)(mcm1))) mcm_v_calc=+ADC[i]/((float) mcm_ch);
+ 
+ 	if(mcm_v>31) mcm_v-=64; 
+  if(abs((float)mcm_v-mcm_v_calc)>2 ) {
+    cout << "ERROR::Calculated and expected MCM value not equal" << endl;
+    cout << "mcm_v_calc = " << dec << mcm_v_calc << endl;
+    cout << "mcm_v = " << dec << mcm_v << endl;
+    pass = false;
+   // break;
+  }
+  
+  return pass;
+}
+
+// loop over mcm thresholds and check if MCMS works properly
+bool Ana_tests::Check_MCMS() {
+  
+  int mcm1, mcm2;
+  bool pass = true;
+  // set to ADC after Ped mode
+  salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x40);
+  
+  for(int i = 0; i < 64; i+=2) { //Looping over upper threshold
+    
+    
+    if(i < 32) mcm1 = i; //Positive and negative conversion
+    else mcm1 = i-64;
+    
+    salt_->write_salt(registers::mcm_th_cfg, (uint8_t) i);
+    
+    
+    for(int j = 0; j < 64; j+=2) { //Looping over the lower threshold
+      
+      if(j < 32) mcm2 = j; //Pos/Negative values
+      else mcm2 = j-64;
+      
+      if(mcm2>mcm1) continue; //Skip nonsense ones
+      
+      salt_->write_salt(registers::mcm_th2_cfg, (uint8_t) j);
+      
+      Get_run("NZS",1,"mcm_test");
+      
+      if(!Check_MCMS(m_avg_adc, mcm1, mcm2, m_mcm_ch, m_mcm_v)) 
+      {
+	pass = false;
+	break;
+	}
+      
+    }
+    
+  }
+  
+
+  return pass;
+}
+  
+
+
+bool Ana_tests::Check_PedS() {
+
+  ofstream outfile;
+  outfile.open("Ped_sub_failed_ch.txt");
+  int ped;
+  bool flag = true;
+  
+  // Set output to ped subtraction data stream
+  salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x40);
+  
+  for(int i = 0; i < 64; i++) {
+
+    // set common value of ped=i to all channels
+    ped = 0x40 | i;
+
+    salt_->write_salt(registers::ped_g_cfg, (uint8_t) ped);
+
+    Get_run("NZS",10,"ped_test");
+   
+    ped = i;
+    if(i >= 32) 
+      ped = i-64;
+    
+    for(int k = 0; k < 128; k++) {
+      
+      if(abs(m_avg_adc[k] - ped) > 2) {
+	cout << "avg_adc[k] = " << m_avg_adc[k] << endl;
+	cout << "ped = " << ped << endl;
+	cout << "ERROR::Ch" << dec << k << " failed Pedestal subtraction" << endl;
+	m_baseline_fail[k] = true;
+	m_ch_pass[k] = false;
+	outfile << "ch = " << dec << k << endl;
+	flag = false;
+      }
+    }
+    
+  }
+  
+  salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x20);
+  salt_->write_salt(registers::ped_g_cfg, (uint8_t) 0x00);
+  
+  return flag;
+  
+}
+
+// Check ZS threshold
+bool Ana_tests::Check_NZS() {
+    
+  stringstream outText; 
+  uint8_t n_zs = 0x20;
+  
+  for(int i = 0; i < 32; i++) {
+
+    // set ZS threshold
+    n_zs = n_zs | i;
+    salt_->write_salt(registers::n_zs_cfg, n_zs);
+    
+    // Take a run
+    Get_run("Normal",1,"no_out");
+
+    // Check that no channel has hits above the threshold
+    for(int k = 0; k < 128; k++) {      
+      
+      if(m_avg_adc[k] < i && m_avg_adc[k]>0) {
+	cout << "ERROR: Hits below ZS threshold" << endl;
+	return false;
+      }
+      
+    }
+    
+    // take 100 runs and save result
+    //outText << "nzs_th_" << dec << i;
+    //Get_run("Normal",100,outText.str());
+    //outText.str("");
+  }
+
+  // revert threshold to 0
+  salt_->write_salt(registers::n_zs_cfg,(uint8_t) 0x20);
+
+  return true;
+}
+
+float Ana_tests::calculateSD(float data[], int runs) {
+
+  float sum = 0.0, mean, standardDeviation = 0.0;
+  int i;
+  for(i = 0; i < runs; ++i)
+    sum += data[i];
+  
+  mean = sum/((float) runs);
+  
+  for(i = 0; i < runs; ++i)
+    standardDeviation += pow(data[i] - mean, 2);
+  
+  return sqrt(standardDeviation / ((float) runs));
+}
+
+float Ana_tests::calculateSD(int data[], int runs) {
+
+  float sum = 0.0, mean, standardDeviation = 0.0;
+  int i;
+  for(i = 0; i < runs; ++i)
+    sum += data[i];
+  
+  mean = sum/((float) runs);
+  
+  for(i = 0; i < runs; ++i)
+    standardDeviation += pow(data[i] - mean, 2);
+  
+  return sqrt(standardDeviation / ((float) runs));
+}
+
+
+// Gain test
+bool Ana_tests::Check_Gain() {
+
+	float x[64] = {0}, y2[64] = {0};
+	//float x[64] = {0}, y2[64] = {0};
+	int j=0;
+	bool pass = true;
+	int pol = 1;
+	//int ch = 50;
+	m_gain_chip = 0;
+	m_offset_chip = 0;
+	//uint8_t start = 0x01;
+	salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x60);
+
+	disable_ch(128);
+	//enable_ch(ch);
+
+
+		//salt_->write_salt(0x30E, (uint8_t) 0x01);
+
+		//cout << "[mV] [ADC] [Err]" << endl;
+	
+	for(int ch = 0; ch < 128; ch++) {
+
+	//disable_ch(ch);
+	enable_ch(ch);	
+	if(pol == 1)
+		salt_->write_salt(registers::calib_main_cfg, (uint8_t) 0x01);
+	if(pol == -1) 
+		salt_->write_salt(registers::calib_main_cfg, (uint8_t) 0x81);
+	//cout << "pulse polarity = " << pol << endl;
+	j=0;
+		// loop over impulse volages
+	for(int i = 0; i < 52; i+=4) {
+
+		salt_->write_salt(registers::calib_volt_cfg, (uint8_t) i);   
+		//salt_->write_salt(registers::calib_volt_cfg, (uint8_t) 0); 
+			// Do 5 runs
+		Get_run("Calib_NZS", 10, "Calib_NZS");
+		//break;
+		m_gain_pts[2][j] = m_noise_rms;
+
+		//cout <<  "m_gain_pts[1][" << dec << j << "] = " << m_gain_pts[1][j] << endl;
+		x[j] = i*2.7;
+		//y1[j] = m_noise;
+		y2[j] = m_avg_adc[ch];
+		j++;
+	}
+
+	for(int l = 0; l < 8; l++) {	
+			//	y2[l] = y[l][ch];
+	//cout <<	"m_gain_pts[1][" << dec << l << "] = " << m_gain_pts[1][l] << endl;
+		m_gain_pts[1][l]=y2[l]; 
+		m_gain_pts[0][l]=x[l];
+	  
+	}
+        if(!Check_linear(x,y2,5,0.05)) {
+
+		 cout << "ERROR:ch " << dec << ch << " has non-linear gain" << endl;
+		 m_gain_lin_fail[ch] = true;
+		 m_ch_pass[ch] = false;
+	 	pass = false;
+	}
+
+
+	//cout << "ch " << ch << " gain = " << m_b<< endl; 
+	m_offset[ch] = m_a;
+	m_gain[ch] = m_b;
+	m_gain_chip += m_b/(128.);
+	m_offset_chip += m_a/(128.);
+	disable_ch(ch);
+	}
+	float std_dev = calculateSD(m_gain,128);
+
+	for(int k=0; k < 128; k++) {
+		
+		if(m_gain[k] > 0) {
+
+			if((m_gain[k] - 5*std_dev) > m_gain_chip) {
+
+				cout << "ERROR::ch" << k << " has too high gain" << endl;
+				pass = false;
+				m_gain_range_fail[k] = true;
+				m_ch_pass[k] = false;
+			}
+		}
+		else {
+			if((m_gain[k]+5*std_dev) < m_gain_chip) {
+				cout << "ERROR::ch" << k << " has too low gain" << endl;
+				pass = false;
+				m_gain_range_fail[k] = true;
+				m_ch_pass[k] = false;
+
+			}
+		}
+
+	
+
+	}
+	//return true;
+
+	gain_outFile();
+	
+	return pass;
+
+}
+
+// Check linearity of a data set (x,y) of a given number of data points (size) and a threshold to compare linear and quadratic terms (thresh)
+bool Ana_tests::Check_linear(float x[], float y[], int size, float thresh) {
+
+  float a, b, c, ratio;
+
+  Get_quadTerms(x,y,size,a,b,c);
+  m_a = a;
+  m_b = b;
+  m_c = c;
+  ratio = abs(c/b);
+ 
+//slope = b; 
+//offset = a;	
+
+  if(ratio > thresh) {
+    cout << "ERROR:: DATA SET NOT LINEAR" << endl; 
+ 	 return false;
+  }
+  return true;
+}
+
+// my quadratic fit (y = a + b*x + c*x^2)
+void Ana_tests::Get_quadTerms(float x[], float y[], int npoints, float &a, float &b, float &c) {
+
+  float S01 = 0, S02 = 0, S03 = 0, S04 = 0, S10 = 0, S11 = 0, S12 = 0;
+  float a2, b2, c2, a3, b3, c3, a4, b4, c4;
+  float m, n;
+  for(int i=0; i < npoints; i++) {
+
+    S01 += x[i];
+    S02 += (x[i]*x[i]);
+    S03 += (x[i]*x[i]*x[i]);
+    S04 += (x[i]*x[i]*x[i]*x[i]);
+    S10 += y[i];
+    S11 += (y[i]*x[i]);
+    S12 += (y[i]*x[i]*x[i]);
+  }
+
+  a2 = S01/((float) npoints);
+  a3 = S02/((float) npoints);
+  a4 = S10/((float) npoints);
+
+  b2 = S02/S01;
+  b3 = S03/S01;
+  b4 = S11/S01;
+
+  c2 = S03/S02;
+  c3 = S04/S02;
+  c4 = S12/S02;
+
+  
+  m = (a4-c4) + (b4-a4)/(b2-a2)*(c2-a2);
+  n = (c3-a3) + (b3-a3)/(b2-a2)*(c2-a2);
+
+  c = -m/n;
+
+  b = 1/(b2-a2)*( (b4-a4) +(b3-a3)*c);
+
+  a = a4-a2*b-a3*c;
+}
+bool Ana_tests::set_calib_fifo() {
+//float shape[32] = {0};
+  float best=0;
+//  bool pass =  false;
+  int best_l = 0;
+  int best_c = 0;
+  int pol = 1;
+  uint8_t buffer;
+  uint8_t adc_sel = 1;
+  int ch = 50;
+//  int upper_bound = 0;
+//  int lower_bound = 0;
+//  bool good_value = false;
+
+
+  salt_->write_salt(registers::ser_source_cfg, (uint8_t) 0x20);
+  //for(int i = 0x105; i<=0x114; i++ ) salt_->write_salt(i,(uint8_t) 0xFF);
+
+  //salt_->write_salt(0x103, (uint8_t) 0x40);
+  //salt_->write_salt(0x100, (uint8_t) 0x60);
+  //salt_->write_salt(0x205, (uint8_t) 0x00);
+
+  salt_->write_salt(registers::others_g_cfg,(uint8_t) 0x60);
+
+  // set calib fifo delay to 5
+  //salt_->write_salt(registers::calib_fifo_cfg, (uint8_t) 0x05);
+
+  // set pulse width to 1
+  salt_->write_salt(registers::calib_main_cfg,(uint8_t) 0x01);
+
+  // disable injection for all channels
+  disable_ch(128);
+
+  // enable injection for only 1 given channel
+  enable_ch(ch);
+
+  // set dll phase to 5
+  salt_->write_salt(registers::calib_clk_cfg, (uint8_t) 0x05);
+  // set to nzs data after mcms
+  salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x60);
+  // set calibration pulse height
+  salt_->write_salt(registers::calib_volt_cfg, (uint8_t) 31);
+  // check polarity  
+  salt_->read_salt(registers::calib_main_cfg,&buffer);
+  cout << "row: tfc_fifo_cfg, column: adc_clk_cfg " << endl;
+  if((buffer & 0b10000000) == 0b10000000) pol = -1; 
+  else pol = 1;
+
+  // loop over tfc_fifo_cfg
+  for(int i=0; i < 16 ; i++) { 
+    salt_->write_salt(registers::tfc_fifo_cfg, (uint8_t) i);
+
+    // loop over adc_clk_cfg
+    for(int j = 0; j < 64; j++) {
+      salt_->write_salt(registers::adc_clk_cfg, (uint8_t) j);
+
+      // check if we need to sample on rising or falling edge
+      if((j<57) ) {adc_sel = 0x00;}
+      else adc_sel = 0x80;
+      salt_->write_salt(registers::pack_adc_sync_cfg, adc_sel);
+
+      // take a calib followed by (with appropriate delay) NZS
+      Get_run("Calib_NZS", 1, "Calib_NZS");
+
+      //return true;
+
+      // print out table to screen
+      cout << setfill('0') << setw(3) << m_avg_adc[ch] << " ";
+
+      // check which value has largest pulse height (ADC value)
+      if(pol*m_avg_adc[ch] > best){
+	best = abs(m_avg_adc[ch]);
+	best_l = i;
+	best_c = j;
+      }
+     
+    }
+      cout <<endl; 
+ 
+  }
+  if((best_c<57) ) adc_sel = 0x00;
+  else adc_sel = 0x80;
+  
+  salt_->write_salt(registers::pack_adc_sync_cfg, adc_sel);
+  salt_->write_salt(registers::tfc_fifo_cfg, (uint8_t) best_l);
+  salt_->write_salt(registers::adc_clk_cfg, (uint8_t) best_c);
+  cout << "tfc fifo delay = " << best_l << endl;
+  cout << "adc clk delay  = " << best_c << endl;
+  
+  return true;
+ }
+
+void Ana_tests::bad_ch_output() {
+
+	ofstream outfile;
+  	outfile.open("bad_ch.txt");
+//m_health = "GREEN";	
+	int bad = 0;
+	for(int i = 0; i < 128; i ++) {
+
+		if(m_ch_pass[i])
+			continue;
+
+		bad++;
+		outfile << "CH" << dec << i << ":" ;	 
+		if(m_baseline_fail[i])
+			outfile << " Non-Linear TrimDAC response.";
+	       	if(m_pedestal_fail[i])
+			outfile << " Pedestal Subtraction failed.";
+		if(m_noise_fail[i])
+			outfile << " Noise out of range.";
+		if(m_gain_lin_fail[i])
+			outfile << " Non-linear Gain response.";
+		if(m_gain_range_fail[i])
+			outfile << " Gain out of range.";
+		if(m_gain_offset_fail[i])
+			outfile << " Gain offset of out range.";
+		if(m_xtalk_fail[i])
+			outfile << " Cross-talk too high.";
+
+		outfile << endl;			
+	}
+
+	if( (bad == 1) && (m_health == "GREEN") )
+		m_health = "YELLOW";
+	if( bad > 1 )
+		m_health = "RED";
+
+//	return m_health;
+}
+
+
+void Ana_tests::baseline_output() {
+
+	cout << dec << 0 << endl << 255 << endl;
+
+	for(int i=0; i < 128; i++) {
+
+		cout << showpos << dec << m_baseline[i] << " "; 		
+
+	}
+	cout << endl;
+	for(int i = 0; i < 128; i++) {
+
+		cout  << showpos << fixed << setprecision(3) << m_baseline_slope[i] << " ";
+
+	}
+	cout << endl;
+	//cout <<  m_gain_chip << endl;
+	//cout << m_offset_chip << endl;
+
+}
+
+void Ana_tests::baseline_outFile() {
+
+	ofstream outfile;
+  	outfile.open("trim_dac_value.txt");
+
+//	outfile << 0 << endl << 255 << endl;
+
+	for(int i=0; i < 128; i++) {
+
+		outfile << showpos << m_baseline[i] << " "; 		
+
+	}
+	outfile << endl;
+	for(int i = 0; i < 128; i++) {
+
+		outfile  << showpos << fixed << setprecision(3) << m_baseline_slope[i] << " ";
+
+	}
+	outfile << endl;
+	//cout <<  m_gain_chip << endl;
+	//cout << m_offset_chip << endl;
+
+}
+
+
+void Ana_tests::gain_output() {
+
+	for(int i=0; i < 128; i++) {
+		cout  << showpos<< fixed << setprecision(3) <<  m_gain[i] << " ";
+
+	}
+	cout << endl;
+
+	// std dev
+	for(int i = 0; i < 128; i++) {
+
+		cout  << showpos << fixed << setprecision(3) << m_offset[i] << " ";
+
+	}
+	cout << endl;
+	for(int i=0; i < 128; i++) {
+		cout  << showpos<< fixed << setprecision(3) <<  m_gain_std[i] << " ";
+
+	}
+	cout << endl;
+
+	cout <<  m_gain_chip << endl;
+	cout << m_offset_chip << endl;
+
+
+}
+
+void Ana_tests::gain_outFile() {
+	ofstream outfile;
+  outfile.open("gain_offset.txt");
+	for(int i=0; i < 128; i++) {
+		outfile  << showpos<< fixed << setprecision(3) <<  m_gain[i] << " ";
+	}
+	outfile << endl;
+	// std dev
+	for(int i = 0; i < 128; i++) {
+		outfile  << showpos << fixed << setprecision(3) << m_offset[i] << " ";
+	}
+	outfile << endl;
+	//cout <<  m_gain_chip << endl;
+	//cout << m_offset_chip << endl;
+}
+
+void Ana_tests::xtalk_output() {
+	for(int i=0; i < 128; i++) {
+		cout  << showpos<< fixed << setprecision(3) <<  m_xtalk[i] << " ";
+	}
+	cout << endl;
+}
+
+void Ana_tests::xtalk_outFile() {
+	ofstream outfile;
+  	outfile.open("cross_talk.txt");
+	for(int i=0; i < 128; i++) {
+		outfile  << showpos<< fixed << setprecision(3) <<  m_xtalk[i] << " ";
+	}
+	outfile << endl;
+	outfile.close();
+}
+
+bool Ana_tests::xtalk_test() {
+	bool pass = true;
+	salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x60);
+	salt_->write_salt(registers::calib_volt_cfg, (uint8_t) 32); 
+	disable_ch(128);
+	for(int ch = 0; ch<128; ch++) {
+		enable_ch(ch);
+		Get_run("Calib_NZS", 20, "Calib_NZS");
+	//for(int j = 0; j < 4; j++) {
+	//	usleep(100);
+		if(ch==0) {
+				xtalkl[ch] = 0;
+				xtalkr[ch] = m_avg_adc[ch+1]/m_avg_adc[ch];
+		}
+		else {
+			xtalkl[ch] = m_avg_adc[ch-1]/m_avg_adc[ch];
+			if(ch==127) xtalkr[ch] = 0;
+			else xtalkr[ch] = m_avg_adc[ch+1]/m_avg_adc[ch];
+		}
+		if(ch==0) m_xtalk[ch] = xtalkr[ch];
+		else if(ch==127) m_xtalk[ch] = xtalkr[ch];
+		else 
+			m_xtalk[ch] = (xtalkl[ch]+xtalkr[ch-1])/2;
+		disable_ch(ch);
+	}
+	for(int ch = 0; ch < 128; ch++) {
+		if(ch==0) m_xtalk[ch] = xtalkr[ch];
+		else if(ch==127) m_xtalk[ch] = xtalkr[ch];
+		else m_xtalk[ch] = (xtalkl[ch]+xtalkr[ch-1])/2;
+		if(abs(m_xtalk[ch]) > 0.1) {
+			  cout << "ERROR:High cross-talk between ch" << ch << " and ch" << ch-1 << endl;
+			 pass = false;
+			m_xtalk_fail[ch] = true;
+	       		m_ch_pass[ch] = false;		
+		  }  
+	}
+//	}
+//return true;
+	xtalk_outFile();
+return pass;
+}
+
+void Ana_tests::enable_ch(int ch) {
+	// enable all ch if input is 128
+	if (ch==128) {
+		for(int i = 0x307; i < 0x317; i++) {
+			salt_->write_salt(i, (uint8_t) 0xFF);
+		}
+		cout << "All channels enabled" << endl;
+		return;
+	}
+	if(ch >128) {
+		cout << "ERROR::Channel to enable out of range" << endl;
+		return;
+	}
+	uint8_t bit;
+	// write to correct bit
+	bit = 0x01 << ((ch + 8) % 8);
+	// find correct salt register to enable ch
+	for (int i = 0; i < 16; i ++)
+		if ( (ch < (i+1)*8) && (ch >= i*8 ) ) {
+			salt_->write_salt((0x307+i)  , bit);
+			return;
+			}
+	// if we get here, something went wrong, the channel did not enable!!!
+	cout << "ERROR::Could not enable ch " << ch << endl;
+}
+
+void Ana_tests::disable_ch(int ch) {
+	if (ch==128) {
+		for(int i = 0x307; i < 0x317; i++) {
+			salt_->write_salt(i, (uint8_t) 0x00);
+		}
+		cout << "All channels enabled" << endl;
+		return;
+	}
+	if(ch>128) {
+		cout << "ERROR::Channel to disable out of range" << endl;
+		return;
+	}
+	uint8_t bit;
+	// write to correct bit
+	bit = 0x00 << ((ch + 8) % 8);
+	// find correct salt register to enable ch
+	for (int i = 0; i < 16; i ++)
+		if ( (ch < (i+1)*8) && (ch >= i*8 ) ) {
+			salt_->write_salt((0x307+i), bit);
+			return;
+			}
+	// if we get here, something went wrong, the channel did not enable!!!
+	cout << "ERROR::Could not disable ch " << ch << endl;
+}
+
