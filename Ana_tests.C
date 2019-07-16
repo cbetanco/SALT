@@ -668,12 +668,12 @@ bool Ana_tests::Check_Gain() {
 	//cout << "pulse polarity = " << pol << endl;
 	j=0;
 		// loop over impulse volages
-	for(int i = 0; i < 52; i+=4) {
+	for(int i = 0; i < 20; i+=4) {
 
 		salt_->write_salt(registers::calib_volt_cfg, (uint8_t) i);   
 		//salt_->write_salt(registers::calib_volt_cfg, (uint8_t) 0); 
 			// Do 5 runs
-		Get_run("Calib_NZS", 10, "Calib_NZS");
+		Get_run("Calib_NZS", 5, "Calib_NZS");
 		//break;
 		m_gain_pts[2][j] = m_noise_rms;
 
@@ -684,7 +684,7 @@ bool Ana_tests::Check_Gain() {
 		j++;
 	}
 
-	for(int l = 0; l < 8; l++) {	
+	for(int l = 0; l < 5; l++) {	
 			//	y2[l] = y[l][ch];
 	//cout <<	"m_gain_pts[1][" << dec << l << "] = " << m_gain_pts[1][l] << endl;
 		m_gain_pts[1][l]=y2[l]; 
@@ -1047,7 +1047,7 @@ bool Ana_tests::xtalk_test() {
 	disable_ch(128);
 	for(int ch = 0; ch<128; ch++) {
 		enable_ch(ch);
-		Get_run("Calib_NZS", 20, "Calib_NZS");
+		Get_run("Calib_NZS", 10, "Calib_NZS");
 	//for(int j = 0; j < 4; j++) {
 	//	usleep(100);
 		if(ch==0) {

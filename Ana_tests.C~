@@ -668,12 +668,12 @@ bool Ana_tests::Check_Gain() {
 	//cout << "pulse polarity = " << pol << endl;
 	j=0;
 		// loop over impulse volages
-	for(int i = 0; i < 52; i+=4) {
+	for(int i = 0; i < 20; i+=4) {
 
 		salt_->write_salt(registers::calib_volt_cfg, (uint8_t) i);   
 		//salt_->write_salt(registers::calib_volt_cfg, (uint8_t) 0); 
 			// Do 5 runs
-		Get_run("Calib_NZS", 10, "Calib_NZS");
+		Get_run("Calib_NZS", 5, "Calib_NZS");
 		//break;
 		m_gain_pts[2][j] = m_noise_rms;
 
@@ -684,7 +684,7 @@ bool Ana_tests::Check_Gain() {
 		j++;
 	}
 
-	for(int l = 0; l < 8; l++) {	
+	for(int l = 0; l < 5; l++) {	
 			//	y2[l] = y[l][ch];
 	//cout <<	"m_gain_pts[1][" << dec << l << "] = " << m_gain_pts[1][l] << endl;
 		m_gain_pts[1][l]=y2[l]; 
@@ -859,8 +859,8 @@ bool Ana_tests::set_calib_fifo() {
       salt_->write_salt(registers::adc_clk_cfg, (uint8_t) j);
 
       // check if we need to sample on rising or falling edge
-      if((j<40) && (j>7)) {adc_sel = 0x00;}
-      else adc_sel = 0x00;
+      if((j<57) ) {adc_sel = 0x00;}
+      else adc_sel = 0x80;
       salt_->write_salt(registers::pack_adc_sync_cfg, adc_sel);
 
       // take a calib followed by (with appropriate delay) NZS
@@ -882,8 +882,8 @@ bool Ana_tests::set_calib_fifo() {
       cout <<endl; 
  
   }
-  if((best_c<40) && (best_c > 7)) adc_sel = 0x00;
-  else adc_sel = 0x00;
+  if((best_c<57) ) adc_sel = 0x00;
+  else adc_sel = 0x80;
   
   salt_->write_salt(registers::pack_adc_sync_cfg, adc_sel);
   salt_->write_salt(registers::tfc_fifo_cfg, (uint8_t) best_l);

@@ -16,6 +16,7 @@
 #include <vector>
 #include <fstream>
 #include <sys/stat.h>
+#include "DacCalib.h"
 
 int main(int argc, char *argv[])
 {
@@ -43,8 +44,8 @@ int main(int argc, char *argv[])
  CurrentMonitor *cur1 = new CurrentMonitor(2,0x41);
  CurrentMonitor *cur2 = new CurrentMonitor(0,0x40);
 	// initial definitions
-	ExternalADC *adc1115 = new ExternalADC(0x49,2);
-	adc1115->access_device();
+//	ExternalADC *adc1115 = new ExternalADC(0x49,2);
+//	adc1115->access_device();
 //	uint16_t adc_counts = 0;
 //	double v = 0;
 //	adc1115->read_adc(&adc_counts);
@@ -364,6 +365,12 @@ if(arg.at(i) == "phase_shift5") {
 dig_com->FPGA_PLL_shift_Deser(0);
 		}
 
+if(arg.at(i) == "DAC") {
+
+dacCalib_Calibrate(st);
+cout << "SUCCESS!" << endl << "PASSED!" << endl;
+}
+
 		if(arg.at(i) == "find_phase") {
 dig_com->phase_find();
 cout << "SUCCESS!" << endl << "PASSED!" << endl;
@@ -379,7 +386,7 @@ cout << "SUCCESS!" << endl << "PASSED!" << endl;
 //			bool rightConfig = true;
 			//Initialize the command sequence:
 			for (int a=0; a < 255; a++) command[a]=0;
-			command[2] = 0xFF;
+			command[2] = 0x10;
 			
 			st->write_salt(registers::ser_source_cfg,(uint8_t) 0x21);
 			fastComm->Take_a_run(length_read, data, length, 0, command, period, singleShot, true );
@@ -425,7 +432,7 @@ cout << "SUCCESS!" << endl << "PASSED!" << endl;
 				st->write_salt(0x002,(uint8_t) ((i << 2) || 0x03));	
 				fastComm->Take_a_run(length_read, data, length, 0, command, period, singleShot, false );
 				for(int j = 0; j < length_read-1; j++) 
-					//cout << "data[" << dec << j << "] = " << hex << (unsigned) data[j] << endl;
+					cout << "data[" << dec << j << "] = " << hex << (unsigned) data[j] << endl;
 
 					if(dig_com->Check_Ber(data, length_read, command)==0) {
 						pass = true;

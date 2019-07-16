@@ -67,14 +67,14 @@ void FastComm::Launch_ACQ(bool tfc_trig)
     //else
   // usleep(1000);
   if (tfc_trig)
-    fpga_->write_fpga(registers::TFC_TRIGGER, (uint8_t)0x01); //Trigger the TFC                                                                                                 
+    fpga_->write_fpga(registers::TFC_TRIGGER, (uint8_t)0x00); //Trigger the TFC                                                                                                 
   //fpga_->write_fpga(registers::DAQ_TRIGGER, (uint8_t)0x03);    
-  if ((data & 0x10) == 0)
-    {
+  //if ((data & 0x10) == 0)
+   // {
      // cout << "ERROR::DAQ NEVER TRIGGERED AQUISITION" << endl;
       //SOMETHING WENT WRONG, IT TOOK TOO MUCH TIME                                                                                                                                     
       // COMPLAIN!                                                                                                                                                                      
-    }
+  //  }
 }
 
 void FastComm::write_tfc()

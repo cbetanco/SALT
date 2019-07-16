@@ -374,8 +374,18 @@ fastComm_->read_daq(length,data,tfc_trig);
 }
 void Dig_Clk_test::phase_find() {
 
+
+	clock_t start;
+	clock_t finish;
 	bool pass = false;
-	while(!pass) {
+	start = clock();
+	finish = clock();
+//salt_->write_salt(registers::n_zs_cfg, (uint8_t) 32);
+//salt_->write_salt(registers::ana_g_cfg, (uint8_t) 0x92);
+//salt_->write_salt(registers::baseline_g_cfg, (uint8_t) 255);
+
+
+	while(!pass && ((float) (finish/CLOCKS_PER_SEC))<10) {
 		if(DLL_Check_v3() && PLL_Check_v3() && DAQ_Sync_v3_2() && TFC_DSR_sync()) {
 			TFC_Command_Check();
 			//if(tot_fail <=1) {
@@ -385,9 +395,13 @@ void Dig_Clk_test::phase_find() {
 			//}
 		}
 		else FPGA_PLL_shift_Deser(1);
+
+		finish = start - clock();
 	}
-	pass = false;
-	while(!pass){
+	if(tot_fail<=1) pass = true;
+	else pass = false;
+	start = clock();
+	while(!pass&& ((float) (finish/CLOCKS_PER_SEC))<10){
 		cout << "IN PART 2" << endl;
 		if(DLL_Check_v3() && PLL_Check_v3() && DAQ_Sync_v3_2() && TFC_DSR_sync())
 		{
@@ -400,8 +414,12 @@ void Dig_Clk_test::phase_find() {
 		if(pass) break;
 			FPGA_PLL_shift_Deser(0);
 			usleep(100);
-		
+	finish = clock();	
 	}
+//salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x20);
+//salt_->write_salt(registers::ana_g_cfg, (uint8_t) 0x04);
+//salt_->write_salt(registers::baseline_g_cfg, (uint8_t) 255);
+
 }
 
 bool Dig_Clk_test::DAQ_Sync_v3_2() {
@@ -599,20 +617,21 @@ bool pass = true;
 		salt_->read_salt(registers::pll_vco_mon,&read); // read pll_vco_mon
 		if( read !=0) { // if pll_vco_mon is <32 and not 0 then assume positive and increment pll_vco_cfg by one
 			salt_->read_salt(registers::pll_vco_cfg,&read);
-			cout << "pll_vco_cfg = " << hex << (unsigned) read << endl;
+			//cout << "pll_vco_cfg = " << hex << (unsigned) read << endl;
 			salt_->write_salt(registers::pll_vco_cfg, (uint8_t)(read + 1) );
 			salt_->read_salt(registers::pll_vco_cfg,&read);
 
-			cout << "pll_vco_cfg + 1 = " << hex << (unsigned) read << endl;
+			//cout << "SUCCESS!" << endl << "PASSED!" << endl;
+//out << "pll_vco_cfg + 1 = " << hex << (unsigned) read << endl;
 
 		}
 		else if(read >=32){ // if pll_vco_mon >32 then assume negative value and decrease pll_vco_cfg by one
 			salt_->read_salt(registers::pll_vco_cfg,&read);
-			cout << "pll_vco_cfg = " << hex << (unsigned) read << endl;
+			//cout << "pll_vco_cfg = " << hex << (unsigned) read << endl;
 			salt_->write_salt(registers::pll_vco_cfg, (uint8_t)(read - 1) );
 			salt_->read_salt(registers::pll_vco_cfg,&read);
 
-			cout << "pll_vco_cfg - 1 = " << hex << (unsigned) read << endl;
+			//cout << "pll_vco_cfg - 1 = " << hex << (unsigned) read << endl;
 
 		}
 		else {
@@ -621,7 +640,7 @@ bool pass = true;
 		}
 	}
 	salt_->read_salt(registers::pll_vco_mon,&read);
-if(read !=0) pass = false;
+if(abs(read) > 2) pass = false;
 	cout << "pll_vco_mon = " << hex << (unsigned) read << endl;
 	salt_->write_salt(registers::pll_main_cfg, (uint8_t) 0xCD);
 
@@ -660,7 +679,7 @@ bool Dig_Clk_test::I2C_check() {
 bool Dig_Clk_test::TFC_DSR_sync() {
   uint8_t length = 3;
   uint8_t command[max_commands]={0};
-  uint16_t length_read = 255; // number of clock cycles to read
+  uint16_t length_read = 100; // number of clock cycles to read
   uint32_t data[5120]; // data packet
   int period = 3;
   // define single or continuous transmission
@@ -1063,7 +1082,12 @@ tot_fail=0;
   salt_->write_salt(registers::pack_adc_sync_cfg, (uint8_t) 0x00);
   // fereset counter for snapshot command check
   uint8_t counter_fere_snap = 0;
- 
+
+salt_->write_salt(registers::n_zs_cfg, (uint8_t) 32);
+salt_->write_salt(registers::ana_g_cfg, (uint8_t) 0x92);
+salt_->write_salt(registers::baseline_g_cfg, (uint8_t) 255);
+
+
   // check TFC commands
   string option[8];
   bool pass[8] = {false};
@@ -1181,6 +1205,9 @@ tot_fail=0;
     
   }
   tot_fail=counter;
+salt_->write_salt(registers::n_zs_cfg, (uint8_t) 0x20);
+salt_->write_salt(registers::ana_g_cfg, (uint8_t) 0x04);
+
   if(counter>0) return false;
   
   return true;
